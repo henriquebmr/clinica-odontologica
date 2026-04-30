@@ -2,12 +2,11 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('OdontoHubDB');
 
-// Definição das tabelas com suporte a todos os campos solicitados
 db.version(1).stores({
   users: '++id, &email, role',
-  // Cadastro expandido de pacientes
+  // Tabela exclusiva para pacientes
   pacientes: '++id, nome, cpf, telefone, convenio, motivo_consulta, email_paciente, owner_id',
-  // Tabela para Dentistas e Funcionários (Equipe)
+  // Tabela exclusiva para equipe (dentistas/funcionários)
   equipe: '++id, nome, cpf, cro, cargo, telefone, email, tipo_usuario', 
   agendamentos: '++id, paciente_id, data, hora, email_paciente, owner_id, procedimento, paciente_nome',
   financeiro: '++id, tipo, valor, data, categoria, owner_id',
