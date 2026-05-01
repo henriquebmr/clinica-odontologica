@@ -2,18 +2,30 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('OdontoHubDB');
 
+/**
+ * CONFIGURAÇÃO DO BANCO DE DADOS - SPRINT 2
+ * Os campos listados abaixo são índices. Campos não listados 
+ * (como 'motivo_consulta') ainda são salvos, mas não podem ser 
+ * usados em filtros rápidos (.where).
+ */
 db.version(1).stores({
   users: '++id, &email, role',
-  // Tabela exclusiva para pacientes
-  pacientes: '++id, nome, cpf, telefone, convenio, motivo_consulta, email_paciente, owner_id',
-  // Tabela exclusiva para equipe (dentistas/funcionários)
+  
+  // Tabela de pacientes - Adicionado 'email_paciente' como índice para busca
+  pacientes: '++id, nome, cpf, telefone, email_paciente, owner_id',
+  
   equipe: '++id, nome, cpf, cro, cargo, telefone, email, tipo_usuario', 
-  agendamentos: '++id, paciente_id, data, hora, email_paciente, owner_id, procedimento, paciente_nome',
-  financeiro: '++id, tipo, valor, data, categoria, owner_id',
+  
+  // Agendamentos - Sprint 2: Adicionado 'paciente_id' e 'data' para verificação de conflitos
+  agendamentos: '++id, paciente_id, data, hora, owner_id, paciente_nome',
+  
+  // Financeiro - Sprint 2: Adicionado 'paciente_id' para vincular receitas aos pacientes
+  financeiro: '++id, tipo, valor, data, paciente_id, owner_id',
+  
   odontograma: '++id, paciente_id, dente_id, condicao, data, owner_id'
 });
 
-// Função para criptografia de senha
+// Função para criptografia de senha (SHA-256)
 export async function hashPassword(password) {
   const encoder = new TextEncoder();
   const data = encoder.encode(password);

@@ -29,9 +29,8 @@ export default function App() {
     nome: '', cpf: '', cro: '', cargo: '', telefone: '', email: '', tipo_usuario: 'dentista' 
   });
 
-  const [novaConsulta, setNovaConsulta] = useState({ paciente_id: '', data: '', hora: '', procedimento: 'Consulta Geral' });
+  const [novaConsulta, setNovaConsulta] = useState({ paciente_id: '', equipe_id: '', data: '', hora: '', procedimento: 'Consulta Geral' });
   const [transacoes, setTransacoes] = useState([]);
-  // Estado financeiro atualizado para suportar vínculo com paciente
   const [novaTransacao, setNovaTransacao] = useState({ tipo: 'receita', valor: '', categoria: 'Consulta', paciente_id: '' });
   const [pacienteSelecionado, setPacienteSelecionado] = useState(null);
   const [odontogramaData, setOdontogramaData] = useState([]);
@@ -74,9 +73,15 @@ export default function App() {
 
   // --- 6. FUNÇÕES DE SALVAMENTO E EDIÇÃO ---
   
-  const verificarDisponibilidade = async (data, hora) => {
-    const agendamentosDoDia = await db.agendamentos.where({ data: data }).toArray();
-    const conflito = agendamentosDoDia.find(a => a.hora === hora && a.id !== editandoId);
+  // Alteração: Verificação agora filtra por Médico (equipeId)
+  const verificarDisponibilidade = async (data, hora, equipeId) => {
+    if (!data || !hora || !equipeId) return true;
+    const agendamentosConflitantes = await db.agendamentos
+      .where({ data: data })
+      .filter(a => a.hora === hora && a.equipe_id === parseInt(equipeId))
+      .toArray();
+
+    const conflito = agendamentosConflitantes.find(a => a.id !== editandoId);
     return !conflito;
   };
 
@@ -95,13 +100,18 @@ export default function App() {
   const handleSalvarAgenda = async (e) => {
     if (e) e.preventDefault();
     const p = pacientes.find(px => px.id === parseInt(novaConsulta.paciente_id));
+    const m = equipe.find(ex => ex.id === parseInt(novaConsulta.equipe_id));
+    
     if (!p) return alert("Selecione um paciente válido.");
+    if (!m) return alert("Selecione um médico responsável.");
 
     const dadosAgendamento = {
       ...novaConsulta,
       paciente_id: parseInt(novaConsulta.paciente_id),
+      equipe_id: parseInt(novaConsulta.equipe_id),
       owner_id: currentUser.id,
       paciente_nome: p.nome,
+      medico_nome: m.nome,
       email_paciente: p.email_paciente || '',
       motivo: p.motivo_consulta || 'Nenhum motivo detalhado',
       convenio: p.convenio || 'Particular',
@@ -115,7 +125,7 @@ export default function App() {
       await db.agendamentos.add(dadosAgendamento);
     }
 
-    setNovaConsulta({ paciente_id: '', data: '', hora: '', procedimento: 'Consulta Geral' });
+    setNovaConsulta({ paciente_id: '', equipe_id: '', data: '', hora: '', procedimento: 'Consulta Geral' });
     await carregarTudo();
   };
 
@@ -128,17 +138,13 @@ export default function App() {
 
   const handleSalvarFinanceiro = async (e) => {
     e.preventDefault();
-    
     let nomeExibicao = novaTransacao.categoria;
-    
-    // Vincula o nome do paciente ao lançamento se for uma receita
     if (novaTransacao.tipo === 'receita' && novaTransacao.paciente_id) {
       const pacienteEncontrado = pacientes.find(px => px.id === parseInt(novaTransacao.paciente_id));
       if (pacienteEncontrado) {
         nomeExibicao = `Receita: ${pacienteEncontrado.nome}`;
       }
     }
-
     await db.financeiro.add({ 
       ...novaTransacao, 
       valor: parseFloat(novaTransacao.valor), 
@@ -146,7 +152,6 @@ export default function App() {
       owner_id: currentUser.id,
       descricao_exibicao: nomeExibicao 
     });
-
     setNovaTransacao({ tipo: 'receita', valor: '', categoria: 'Consulta', paciente_id: '' });
     await carregarTudo();
   };
@@ -204,7 +209,7 @@ export default function App() {
       <aside className="w-72 bg-[#1E293B] flex flex-col border-r border-slate-800 z-20">
         <div className="p-10 flex flex-col items-center gap-4">
             <img src={logo} alt="Logo" className="w-56 h-auto object-contain" />
-            <h2 className="text-xl font-black tracking-tighter uppercase italic">Odonto<span className="text-blue-500 not-italic">Hub</span></h2>
+            <h2 className="text-xl font-black tracking-tighter uppercase italic">OdontoHub</h2>
         </div>
         <nav className="flex-1 px-6 pt-6 space-y-2">
           {isAdmin ? (
@@ -216,10 +221,7 @@ export default function App() {
               <NavItem active={activeTab === 'financeiro'} icon={<DollarSign size={20}/>} label="Financeiro" onClick={() => setActiveTab('financeiro')} />
             </>
           ) : (
-            <>
-              <NavItem active={activeTab === 'consultas'} icon={<Calendar size={20}/>} label="Minhas Consultas" onClick={() => setActiveTab('consultas')} />
-              <NavItem active={activeTab === 'perfil'} icon={<UserCircle size={20}/>} label="Meu Perfil" onClick={() => setActiveTab('perfil')} />
-            </>
+            <NavItem active={activeTab === 'consultas'} icon={<Calendar size={20}/>} label="Minhas Consultas" onClick={() => setActiveTab('consultas')} />
           )}
         </nav>
         <button onClick={logout} className="p-10 text-red-400 font-black text-[10px] uppercase flex items-center gap-2 hover:text-red-300 transition-colors"><LogOut size={16} /> Sair</button>
@@ -229,13 +231,12 @@ export default function App() {
         {isAdmin ? (
           <>
             {activeTab === 'dashboard' && <DashboardView pacientesCount={pacientes.length} agendamentosCount={agendamentos.length} transacoes={transacoes} />}
-            
             {activeTab === 'pacientes' && !pacienteSelecionado && (
               <PacientesView 
                 pacientes={pacientes} novo={novoPaciente} setNovo={setNovoPaciente} maskCPF={maskCPF} maskPhone={maskPhone}
                 save={handleSalvarPaciente} editandoId={editandoId} setEditandoId={setEditandoId}
                 onEdit={(p) => { setNovoPaciente({...p}); setEditandoId(p.id); }}
-                deletar={async (id) => { if(confirm("Remover paciente?")) { await db.pacientes.delete(id); carregarTudo(); } }} 
+                deletar={async (id) => { if(confirm("Remover paciente?")) { await db.pacientes.delete(id); carregarTudo(); } }}
                 onSelect={async (p) => { 
                   setPacienteSelecionado(p); 
                   const data = await db.odontograma.where({ paciente_id: p.id }).toArray();
@@ -243,37 +244,27 @@ export default function App() {
                 }} 
               />
             )}
-
             {activeTab === 'equipe' && (
               <EquipeView equipe={equipe} novo={novoMembro} setNovo={setNovoMembro} maskCPF={maskCPF} maskPhone={maskPhone} save={handleSalvarEquipe} deletar={async (id) => { if(confirm("Remover membro?")) { await db.equipe.delete(id); carregarTudo(); } }} />
             )}
-
             {activeTab === 'agenda' && (
               <AgendaView 
-                pacientes={pacientes} agendamentos={agendamentos} nova={novaConsulta} setNova={setNovaConsulta} save={handleSalvarAgenda} 
+                pacientes={pacientes} equipe={equipe} agendamentos={agendamentos} nova={novaConsulta} setNova={setNovaConsulta} save={handleSalvarAgenda} 
                 editandoId={editandoId} setEditandoId={setEditandoId} onEdit={(ag) => { setNovaConsulta({...ag}); setEditandoId(ag.id); }}
                 onDelete={async (id) => { if(confirm("Cancelar agendamento?")) { await db.agendamentos.delete(id); carregarTudo(); } }}
                 verificar={verificarDisponibilidade} 
               />
             )}
-
             {activeTab === 'financeiro' && (
               <FinanceiroView 
-                transacoes={transacoes} 
-                nova={novaTransacao} 
-                setNova={setNovaTransacao} 
-                save={handleSalvarFinanceiro} 
-                pacientes={pacientes} 
+                transacoes={transacoes} nova={novaTransacao} setNova={setNovaTransacao} 
+                save={handleSalvarFinanceiro} pacientes={pacientes} 
               />
             )}
-
             {pacienteSelecionado && <OdontogramaDetalhes paciente={pacienteSelecionado} data={odontogramaData} onBack={() => setPacienteSelecionado(null)} onDenteClick={async (id, cond) => { await db.odontograma.where({ paciente_id: pacienteSelecionado.id, dente_id: id }).delete(); if (cond && cond !== 'saudavel') await db.odontograma.add({ owner_id: currentUser.id, paciente_id: pacienteSelecionado.id, dente_id: id, condicao: cond, data: new Date().toISOString() }); const newData = await db.odontograma.where({ paciente_id: pacienteSelecionado.id }).toArray(); setOdontogramaData(newData); }} />}
           </>
         ) : (
-          <div className="animate-in fade-in duration-500">
-             {activeTab === 'consultas' && <MinhasConsultas agendamentos={agendamentos} carregarDadosPaciente={() => carregarTudo()} currentUser={currentUser} />}
-             {activeTab === 'perfil' && <PerfilPacienteView form={perfilForm} setForm={setPerfilForm} maskPhone={maskPhone} save={async (e) => { e.preventDefault(); await db.users.update(currentUser.id, perfilForm); setEditandoPerfil(false); alert("Salvo!"); }} editando={editandoPerfil} setEditando={setEditandoPerfil} email={currentUser.email} />}
-          </div>
+          <MinhasConsultas agendamentos={agendamentos} carregarDadosPaciente={() => carregarTudo()} currentUser={currentUser} />
         )}
       </main>
     </div>
@@ -293,9 +284,18 @@ function DashboardView({ pacientesCount, agendamentosCount, transacoes }) {
     <div className="space-y-12 animate-in fade-in duration-500">
       <h1 className="text-5xl font-black uppercase italic tracking-tighter text-white">Visão Geral</h1>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl"><div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><Users size={24}/></div><div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Pacientes</p><p className="text-4xl font-black text-white">{pacientesCount}</p></div></div>
-        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl"><div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><Calendar size={24}/></div><div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Agenda</p><p className="text-4xl font-black text-white">{agendamentosCount}</p></div></div>
-        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl"><div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><DollarSign size={24}/></div><div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Saldo</p><p className="text-4xl font-black text-white">{`R$ ${(rec-des).toFixed(2)}`}</p></div></div>
+        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl">
+          <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><Users size={24}/></div>
+          <div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Pacientes</p><p className="text-4xl font-black text-white">{pacientesCount}</p></div>
+        </div>
+        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl">
+          <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><Calendar size={24}/></div>
+          <div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Agenda</p><p className="text-4xl font-black text-white">{agendamentosCount}</p></div>
+        </div>
+        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl">
+          <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><DollarSign size={24}/></div>
+          <div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Saldo</p><p className="text-4xl font-black text-white">R$ {(rec-des).toFixed(2)}</p></div>
+        </div>
       </div>
     </div>
   );
@@ -314,18 +314,18 @@ function PacientesView({ pacientes, novo, setNovo, maskCPF, maskPhone, save, del
             <input placeholder="Convênio" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.convenio} onChange={e => setNovo({...novo, convenio: e.target.value})} />
             <textarea placeholder="Motivo" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.motivo_consulta} onChange={e => setNovo({...novo, motivo_consulta: e.target.value})} />
             <button type="submit" className={`w-full ${editandoId ? 'bg-amber-600' : 'bg-blue-600'} text-white py-5 rounded-xl font-black uppercase shadow-lg transition-all`}>{editandoId ? 'Atualizar Cadastro' : 'Salvar Paciente'}</button>
-            {editandoId && <button type="button" onClick={() => { setEditandoId(null); setNovo({nome:'', cpf:'', telefone:'', convenio:'', motivo_consulta:''}) }} className="w-full text-slate-500 font-black uppercase text-[10px]">Cancelar Edição</button>}
+            {editandoId && <button type="button" onClick={() => { setEditandoId(null); setNovo({nome:'', cpf:'', telefone:'', convenio:'', motivo_consulta:''}) }} className="w-full text-slate-500 font-black uppercase text-[10px] mt-2">Cancelar Edição</button>}
           </form>
         </div>
         <div className="lg:col-span-2 bg-[#1E293B] rounded-[3rem] border border-slate-700 shadow-xl overflow-hidden">
-          <table className="w-full text-left">
+          <table className="w-full text-left text-white">
             <thead><tr className="bg-[#0F172A] text-slate-500 text-[10px] uppercase font-black border-b border-slate-800"><th className="p-8">Identificação</th><th className="p-8 text-right">Ações</th></tr></thead>
             <tbody>{pacientes.map(p => (
               <tr key={p.id} className="border-b border-slate-800 hover:bg-[#0F172A] transition-all">
-                <td className="p-8 font-black uppercase text-sm text-white" onClick={() => onSelect(p)}>{p.nome} <span className="text-[9px] block text-slate-500">CPF: {p.cpf} | {p.convenio || 'Particular'}</span></td>
+                <td className="p-8 font-black uppercase text-sm text-white cursor-pointer" onClick={() => onSelect(p)}>{p.nome} <span className="text-[9px] block text-slate-500">CPF: {p.cpf} | {p.convenio || 'Particular'}</span></td>
                 <td className="p-8 text-right space-x-2">
-                  <button onClick={() => onEdit(p)} className="text-blue-400 p-2 hover:bg-blue-400/10 rounded-lg transition-all"><Edit3 size={18}/></button>
-                  <button onClick={() => deletar(p.id)} className="text-red-400 p-2 hover:bg-red-400/10 rounded-lg transition-all"><Trash2 size={18}/></button>
+                  <button onClick={() => onEdit(p)} className="text-blue-400 p-2 hover:bg-blue-400/10 rounded-lg"><Edit3 size={18}/></button>
+                  <button onClick={() => deletar(p.id)} className="text-red-400 p-2 hover:bg-red-400/10 rounded-lg"><Trash2 size={18}/></button>
                 </td>
               </tr>
             ))}</tbody>
@@ -354,7 +354,7 @@ function EquipeView({ equipe, novo, setNovo, maskCPF, maskPhone, save, deletar }
           </form>
         </div>
         <div className="lg:col-span-2 bg-[#1E293B] rounded-[3rem] border border-slate-700 shadow-xl overflow-hidden">
-          <table className="w-full text-left">
+          <table className="w-full text-left text-white">
             <thead><tr className="bg-[#0F172A] text-slate-500 text-[10px] uppercase font-black border-b border-slate-800"><th className="p-8">Colaborador</th><th className="p-8 text-right">Ação</th></tr></thead>
             <tbody>{equipe.map(m => (
               <tr key={m.id} className="border-b border-slate-800 hover:bg-[#0F172A] transition-all"><td className="p-8 font-black uppercase text-sm text-white">{m.nome} <span className="text-[9px] block text-slate-500">{m.tipo_usuario} | {m.cargo} {m.cro ? `- CRO: ${m.cro}` : ''}</span></td><td className="p-8 text-right"><button onClick={() => deletar(m.id)} className="text-red-400 p-2 hover:bg-red-400/10 rounded-lg transition-all"><Trash2 size={18}/></button></td></tr>
@@ -366,81 +366,77 @@ function EquipeView({ equipe, novo, setNovo, maskCPF, maskPhone, save, deletar }
   );
 }
 
-function AgendaView({ pacientes, agendamentos, nova, setNova, save, onDelete, verificar, onEdit, editandoId, setEditandoId }) {
+function AgendaView({ pacientes, equipe, agendamentos, nova, setNova, save, onDelete, verificar, onEdit, editandoId, setEditandoId }) {
   const [slots, setSlots] = useState([]);
 
   useEffect(() => {
     const carregarSlots = async () => {
-      if (!nova.data) return;
+      // Alteração: Verificação agora depende do Médico (equipe_id)
+      if (!nova.data || !nova.equipe_id) {
+        setSlots([]);
+        return;
+      }
+
       const horariosDoDia = [];
       for (let h = 8; h < 18; h++) {
         for (let m of ['00', '30']) {
           const horario = `${String(h).padStart(2, '0')}:${m}`;
-          const disponivel = await verificar(nova.data, horario);
+          const disponivel = await verificar(nova.data, horario, nova.equipe_id);
           horariosDoDia.push({ hora: horario, disponivel });
         }
       }
       setSlots(horariosDoDia);
     };
     carregarSlots();
-  }, [nova.data, agendamentos, verificar]);
+  }, [nova.data, nova.equipe_id, agendamentos, verificar]);
 
   return (
     <div className="space-y-12 animate-in fade-in duration-500">
       <h1 className="text-4xl font-black uppercase italic tracking-tighter text-white">{editandoId ? 'Reagendando Consulta' : 'Agenda Médica'}</h1>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl space-y-6">
-          <h2 className="text-xl font-black uppercase text-blue-500">{editandoId ? 'Alterar Dados' : 'Novo Agendamento'}</h2>
           <form onSubmit={save} className="space-y-4">
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Paciente</label>
-              <select required className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" value={nova.paciente_id} onChange={e => setNova({...nova, paciente_id: e.target.value})}><option value="">Selecione...</option>{pacientes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>
+              <select required className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" value={nova.paciente_id} onChange={e => setNova({...nova, paciente_id: e.target.value})}><option value="">Selecione Paciente...</option>{pacientes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Médico Responsável</label>
+              <select required className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" value={nova.equipe_id} onChange={e => setNova({...nova, equipe_id: e.target.value})}><option value="">Selecione Médico...</option>{equipe.filter(e => e.tipo_usuario === 'dentista').map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Data da Consulta</label>
               <input required type="date" className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" value={nova.data} onChange={e => setNova({...nova, data: e.target.value})} />
             </div>
-            {nova.data && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Horários Disponíveis</label>
-                <div className="grid grid-cols-3 gap-2 p-2 bg-[#0F172A] rounded-xl border border-slate-700 max-h-52 overflow-y-auto">
-                  {slots.map(s => (
-                    <button key={s.hora} type="button" disabled={!s.disponivel && nova.hora !== s.hora} onClick={() => setNova({...nova, hora: s.hora})} className={`p-2 rounded-lg text-[10px] font-black border-2 transition-all ${!s.disponivel && nova.hora !== s.hora ? 'bg-red-900/20 text-red-700 border-red-900/30 cursor-not-allowed opacity-50' : nova.hora === s.hora ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105' : 'bg-[#1E293B] text-blue-400 border-slate-700 hover:border-blue-500'}`}>{s.hora}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <button type="submit" disabled={!nova.hora || !nova.paciente_id} className={`w-full ${editandoId ? 'bg-orange-500' : 'bg-blue-600'} text-white py-5 rounded-xl font-black uppercase shadow-lg hover:opacity-90 disabled:opacity-50 transition-all`}>{editandoId ? 'Confirmar Alteração' : 'Confirmar Horário'}</button>
-            {editandoId && <button type="button" onClick={() => { setEditandoId(null); setNova({paciente_id:'', data:'', hora:''}) }} className="w-full text-slate-500 font-black uppercase text-[10px] hover:text-white transition-colors">Cancelar Edição</button>}
+            <div className="grid grid-cols-3 gap-2 p-2 bg-[#0F172A] rounded-xl border border-slate-700 max-h-52 overflow-y-auto">
+              {slots.map(s => (
+                <button key={s.hora} type="button" disabled={!s.disponivel && nova.hora !== s.hora} onClick={() => setNova({...nova, hora: s.hora})} className={`p-2 rounded-lg text-[10px] font-black border-2 transition-all ${!s.disponivel && nova.hora !== s.hora ? 'opacity-30' : nova.hora === s.hora ? 'bg-blue-600 text-white' : 'text-blue-400 border-slate-700 hover:border-blue-500'}`}>{s.hora}</button>
+              ))}
+            </div>
+            <button type="submit" disabled={!nova.hora || !nova.paciente_id || !nova.equipe_id} className={`w-full ${editandoId ? 'bg-orange-500' : 'bg-blue-600'} text-white py-5 rounded-xl font-black uppercase shadow-lg`}>{editandoId ? 'Confirmar Alteração' : 'Confirmar Horário'}</button>
+            {editandoId && <button type="button" onClick={() => { setEditandoId(null); setNova({paciente_id:'', equipe_id: '', data:'', hora:''}) }} className="w-full text-slate-500 font-black uppercase text-[10px] mt-2">Cancelar Edição</button>}
           </form>
         </div>
         <div className="lg:col-span-2 space-y-4">
-          {agendamentos.length === 0 ? (
-            <div className="text-center p-20 border-2 border-dashed border-slate-800 rounded-[3rem]"><p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Nenhum agendamento encontrado</p></div>
-          ) : (
-            agendamentos.sort((a,b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora)).map(ag => {
-              const dadosPaciente = pacientes.find(p => p.id === ag.paciente_id || p.nome === ag.paciente_nome);
-              return (
-                <div key={ag.id} className="bg-[#1E293B] p-8 rounded-[2.5rem] border border-slate-700 flex justify-between items-start shadow-md hover:border-blue-500/50 transition-all group text-white">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <p className="text-blue-400 font-black text-xs uppercase px-4 py-1.5 bg-blue-900/30 rounded-full border border-blue-800/50">{new Date(ag.data + 'T12:00:00').toLocaleDateString('pt-BR')} às {ag.hora}</p>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{dadosPaciente?.convenio || 'Particular'}</span>
-                    </div>
-                    <div><p className="text-2xl font-black uppercase text-white tracking-tighter">{ag.paciente_nome}</p><p className="text-xs text-slate-400 font-medium">{dadosPaciente?.telefone || 'Contato não disponível'}</p></div>
-                    <div className="bg-[#0F172A] p-4 rounded-2xl border border-slate-800 max-w-lg">
-                      <p className="text-[9px] font-black text-blue-500 uppercase mb-1 tracking-widest">Motivo Clínico</p>
-                      <p className="text-sm text-slate-300 italic leading-relaxed">{dadosPaciente?.motivo_consulta ? `"${dadosPaciente.motivo_consulta}"` : "Nenhum motivo detalhado no cadastro."}</p>
-                    </div>
+          {agendamentos.sort((a,b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora)).map(ag => {
+            const dadosPaciente = pacientes.find(p => p.id === ag.paciente_id || p.nome === ag.paciente_nome);
+            return (
+              <div key={ag.id} className="bg-[#1E293B] p-8 rounded-[2.5rem] border border-slate-700 flex justify-between items-start shadow-md hover:border-blue-500/50 transition-all group text-white">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <p className="text-blue-400 font-black text-xs uppercase px-4 py-1.5 bg-blue-900/30 rounded-full border border-blue-800/50 w-fit">{new Date(ag.data + 'T12:00:00').toLocaleDateString('pt-BR')} às {ag.hora}</p>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Responsável: {ag.medico_nome || 'Não atribuído'}</span>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <button onClick={() => onEdit(ag)} className="text-blue-400 p-3 hover:bg-blue-400/10 rounded-2xl transition-all"><Edit3 size={22}/></button>
-                    <button onClick={() => onDelete(ag.id)} className="text-red-400 p-3 hover:bg-red-400/10 rounded-2xl transition-all"><Trash2 size={22}/></button>
-                  </div>
+                  <div><p className="text-2xl font-black uppercase text-white tracking-tighter">{ag.paciente_nome}</p><p className="text-xs text-slate-400">{dadosPaciente?.telefone || 'Sem contato'} | {dadosPaciente?.convenio || 'Particular'}</p></div>
+                  <div className="bg-[#0F172A] p-4 rounded-2xl border border-slate-800 max-w-lg"><p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Motivo</p><p className="text-sm text-slate-300 italic">"{dadosPaciente?.motivo_consulta || 'Nenhum motivo detalhado'}"</p></div>
                 </div>
-              );
-            })
-          )}
+                <div className="flex flex-col gap-2">
+                  <button onClick={() => onEdit(ag)} className="text-blue-400 p-3 hover:bg-blue-400/10 rounded-2xl"><Edit3 size={22}/></button>
+                  <button onClick={() => onDelete(ag.id)} className="text-red-400 p-3 hover:bg-red-400/10 rounded-2xl"><Trash2 size={22}/></button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -454,68 +450,17 @@ function FinanceiroView({ transacoes, nova, setNova, save, pacientes }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl space-y-4">
           <form onSubmit={save} className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Tipo de Lançamento</label>
-              <select 
-                className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" 
-                value={nova.tipo} 
-                onChange={e => setNova({...nova, tipo: e.target.value, paciente_id: ''})}
-              >
-                <option value="receita">Receita (+)</option>
-                <option value="despesa">Despesa (-)</option>
-              </select>
-            </div>
-
-            {/* Seletor de paciente exclusivo para receitas */}
-            {nova.tipo === 'receita' && (
-              <div className="space-y-2 animate-in slide-in-from-top-2">
-                <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Paciente Pagador</label>
-                <select 
-                  required 
-                  className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" 
-                  value={nova.paciente_id} 
-                  onChange={e => setNova({...nova, paciente_id: e.target.value})}
-                >
-                  <option value="">Selecione o Paciente...</option>
-                  {pacientes.map(p => (
-                    <option key={p.id} value={p.id}>{p.nome}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Valor (R$)</label>
-              <input required type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" value={nova.valor} onChange={e => setNova({...nova, valor: e.target.value})} />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Descrição / Categoria</label>
-              <input required placeholder="Ex: Manutenção, Limpeza..." className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none focus:border-blue-500" value={nova.categoria} onChange={e => setNova({...nova, categoria: e.target.value})} />
-            </div>
-
-            <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-xl font-black uppercase shadow-lg hover:bg-emerald-700 transition-all">Lançar no Caixa</button>
+            <select className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none" value={nova.tipo} onChange={e => setNova({...nova, tipo: e.target.value, paciente_id: ''})}><option value="receita">Receita (+)</option><option value="despesa">Despesa (-)</option></select>
+            {nova.tipo === 'receita' && <select required className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none" value={nova.paciente_id} onChange={e => setNova({...nova, paciente_id: e.target.value})}><option value="">Paciente Pagador...</option>{pacientes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>}
+            <input required type="number" step="0.01" placeholder="Valor (R$)" className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none" value={nova.valor} onChange={e => setNova({...nova, valor: e.target.value})} />
+            <input required placeholder="Categoria / Descrição" className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none" value={nova.categoria} onChange={e => setNova({...nova, categoria: e.target.value})} />
+            <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-xl font-black uppercase shadow-lg">Lançar no Caixa</button>
           </form>
         </div>
-
         <div className="lg:col-span-2 bg-[#1E293B] rounded-[3rem] border border-slate-700 shadow-xl overflow-hidden">
-           <table className="w-full text-left">
-              <thead>
-                <tr className="bg-[#0F172A] text-slate-500 text-[10px] uppercase font-black border-b border-slate-800">
-                  <th className="p-8">Descrição / Origem</th>
-                  <th className="p-8 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transacoes.map(t => (
-                  <tr key={t.id} className="border-b border-slate-800 p-8 text-white hover:bg-[#0F172A] transition-colors">
-                    <td className="p-8 font-black uppercase text-sm">{t.descricao_exibicao || t.categoria}</td>
-                    <td className={`p-8 text-right font-black ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {t.tipo === 'receita' ? '+' : '-'} R$ {parseFloat(t.valor).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+           <table className="w-full text-left text-white">
+              <thead><tr className="bg-[#0F172A] text-slate-500 text-[10px] uppercase font-black border-b border-slate-800"><th className="p-8">Descrição</th><th className="p-8 text-right">Valor</th></tr></thead>
+              <tbody>{transacoes.map(t => (<tr key={t.id} className="border-b border-slate-800 p-8 hover:bg-[#0F172A] transition-colors"><td className="p-8 font-black uppercase text-sm">{t.descricao_exibicao || t.categoria}</td><td className={`p-8 text-right font-black ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}`}>R$ {parseFloat(t.valor).toFixed(2)}</td></tr>))}</tbody>
            </table>
         </div>
       </div>
