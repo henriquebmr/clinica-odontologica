@@ -20,6 +20,7 @@ export default function App() {
   const [equipe, setEquipe] = useState([]);
   const [agendamentos, setAgendamentos] = useState([]);
   const [transacoes, setTransacoes] = useState([]);
+  const [prontuarios, setProntuarios] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
   
   // --- 3. ESTADOS DE FORMULÁRIOS ---
@@ -27,6 +28,8 @@ export default function App() {
   const [novoMembro, setNovoMembro] = useState({ nome: '', cpf: '', cro: '', cargo: '', telefone: '', email: '', tipo_usuario: 'dentista' });
   const [novaConsulta, setNovaConsulta] = useState({ paciente_id: '', equipe_id: '', data: '', hora: '', procedimento: 'Consulta Geral', motivo: '' });
   const [novaTransacao, setNovaTransacao] = useState({ tipo: 'receita', valor: '', categoria: 'Consulta', paciente_id: '' });
+  const [novoRegistroProntuario, setNovoRegistroProntuario] = useState({ anamnese: '', observacoes: '', medicamentos: '' });
+  
   const [pacienteSelecionado, setPacienteSelecionado] = useState(null);
   const [odontogramaData, setOdontogramaData] = useState([]);
 
@@ -95,6 +98,11 @@ export default function App() {
   };
 
   // --- 8. AÇÕES ADMINISTRATIVAS ---
+  const carregarProntuarios = async (id) => {
+    const data = await db.prontuarios.where({ paciente_id: id }).reverse().sortBy('data');
+    setProntuarios(data);
+  };
+
   const verificarDisponibilidade = async (data, hora, equipeId) => {
     const ags = await db.agendamentos.where({ data }).filter(a => a.hora === hora && a.equipe_id === parseInt(equipeId)).toArray();
     return !ags.find(a => a.id !== editandoId);
@@ -104,7 +112,7 @@ export default function App() {
     e.preventDefault();
     if (editandoId) await db.pacientes.update(editandoId, novoPaciente);
     else await db.pacientes.add({ ...novoPaciente, owner_id: currentUser.id });
-    setEditandoId(null); setNovoPaciente({ nome:'', cpf:'', telefone:'', convenio:'', motivo_consulta:'' });
+    setEditandoId(null); setNovoPaciente({ nome:'', cpf:'', telefone:'', convenio:'', motivo_consulta:'', email_paciente:'' });
     await carregarTudo();
   };
 
@@ -132,6 +140,20 @@ export default function App() {
     await carregarTudo();
   };
 
+  const handleSalvarProntuario = async (e) => {
+    e.preventDefault();
+    if (!pacienteSelecionado) return;
+    await db.prontuarios.add({
+      paciente_id: pacienteSelecionado.id,
+      data: new Date().toISOString(),
+      dentista_nome: currentUser.nome || "Dentista",
+      ...novoRegistroProntuario
+    });
+    setNovoRegistroProntuario({ anamnese: '', observacoes: '', medicamentos: '' });
+    await carregarProntuarios(pacienteSelecionado.id);
+    alert("Prontuário atualizado!");
+  };
+
   const handleSalvarPerfilPaciente = async (e) => {
     e.preventDefault();
     const reg = await db.pacientes.where({ cpf: currentUser.cpf }).first();
@@ -139,6 +161,7 @@ export default function App() {
       await db.pacientes.update(reg.id, { nome: perfilPacienteForm.nome, telefone: perfilPacienteForm.telefone });
       await db.users.update(currentUser.id, { nome: perfilPacienteForm.nome });
       setEditandoPerfil(false); await carregarTudo();
+      alert("Cadastro atualizado!");
     }
   };
 
@@ -156,9 +179,9 @@ export default function App() {
           <div className="w-1/2 p-16 flex flex-col justify-center">
             <h2 className="text-3xl font-black text-white mb-8 uppercase tracking-tighter">{authMode === 'login' ? 'Acesso' : 'Senha'}</h2>
             <form onSubmit={handleAuth} className="space-y-4">
-              <input required placeholder="CPF ou E-mail" className="w-full bg-[#0F172A] text-white p-4 rounded-2xl border border-slate-600 outline-none" value={loginForm.identifier} onChange={e => setLoginForm({...loginForm, identifier: e.target.value})} />
-              <input type="password" required placeholder="Senha" className="w-full bg-[#0F172A] text-white p-4 rounded-2xl border border-slate-600 outline-none" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} />
-              <button type="submit" className="w-full bg-blue-600 text-white p-5 rounded-2xl font-black uppercase">Entrar</button>
+              <input required placeholder="CPF ou E-mail" className="w-full bg-[#0F172A] text-white p-4 rounded-2xl border border-slate-600 outline-none focus:ring-2 focus:ring-blue-500" value={loginForm.identifier} onChange={e => setLoginForm({...loginForm, identifier: e.target.value})} />
+              <input type="password" required placeholder="Senha" className="w-full bg-[#0F172A] text-white p-4 rounded-2xl border border-slate-600 outline-none focus:ring-2 focus:ring-blue-500" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} />
+              <button type="submit" className="w-full bg-blue-600 text-white p-5 rounded-2xl font-black uppercase shadow-xl hover:bg-blue-700">Entrar</button>
             </form>
             <button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="mt-8 text-xs text-slate-400 font-black uppercase text-center w-full">{authMode === 'login' ? 'Primeiro acesso?' : 'Voltar'}</button>
           </div>
@@ -168,11 +191,11 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0F172A] text-white overflow-hidden">
+    <div className="flex h-screen bg-[#0F172A] text-white overflow-hidden font-sans">
       <aside className="w-72 bg-[#1E293B] flex flex-col border-r border-slate-800 z-20">
         <div className="p-10 flex flex-col items-center gap-4">
-          <img src={logo} alt="Logo" className="w-32" />
-          <h2 className="text-xl font-black tracking-tighter uppercase italic">OdontoHub</h2>
+            <img src={logo} alt="Logo" className="w-32 h-auto object-contain" />
+            <h2 className="text-xl font-black tracking-tighter uppercase italic">OdontoHub</h2>
         </div>
         <nav className="flex-1 px-6 pt-6 space-y-2">
           {isAdmin ? (
@@ -185,7 +208,7 @@ export default function App() {
             </>
           ) : (
             <>
-              <NavItem active={activeTab === 'consultas'} icon={<Calendar size={20}/>} label="Minhas Consultas" onClick={() => setActiveTab('consultas')} />
+              <NavItem active={activeTab === 'consultas'} icon={<Calendar size={20}/>} label="Minhas Consultas" onClick={() => {setActiveTab('consultas'); setConsultaSelecionada(null);}} />
               <NavItem active={activeTab === 'perfil'} icon={<UserCircle size={20}/>} label="Meu Perfil" onClick={() => setActiveTab('perfil')} />
             </>
           )}
@@ -193,15 +216,24 @@ export default function App() {
         <button onClick={logout} className="p-10 text-red-400 font-black text-[10px] uppercase flex items-center gap-2 mt-auto"><LogOut size={16} /> Sair</button>
       </aside>
 
-      <main className="flex-1 overflow-y-auto p-12 relative">
+      <main className="flex-1 overflow-y-auto p-12 relative bg-[#0F172A]">
         {isAdmin ? (
           <>
             {activeTab === 'dashboard' && <DashboardView pacientesCount={pacientes.length} agendamentosCount={agendamentos.length} transacoes={transacoes} />}
-            {activeTab === 'pacientes' && !pacienteSelecionado && <PacientesView pacientes={pacientes} novo={novoPaciente} setNovo={setNovoPaciente} maskCPF={maskCPF} maskPhone={maskPhone} save={handleSalvarPaciente} onEdit={(p) => {setNovoPaciente(p); setEditandoId(p.id);}} deletar={async id => {await db.pacientes.delete(id); carregarTudo();}} onSelect={p => setPacienteSelecionado(p)} />}
+            {activeTab === 'pacientes' && !pacienteSelecionado && <PacientesView pacientes={pacientes} novo={novoPaciente} setNovo={setNovoPaciente} maskCPF={maskCPF} maskPhone={maskPhone} save={handleSalvarPaciente} onEdit={(p) => {setNovoPaciente(p); setEditandoId(p.id);}} deletar={async id => {await db.pacientes.delete(id); carregarTudo();}} onSelect={async p => { setPacienteSelecionado(p); await carregarProntuarios(p.id); const odont = await db.odontograma.where({ paciente_id: p.id }).toArray(); setOdontogramaData(odont); }} />}
             {activeTab === 'equipe' && <EquipeView equipe={equipe} novo={novoMembro} setNovo={setNovoMembro} maskCPF={maskCPF} maskPhone={maskPhone} save={async e => {e.preventDefault(); await db.equipe.add(novoMembro); setNovoMembro({nome:'', cpf:'', cro:'', cargo:'', telefone:'', email:'', tipo_usuario:'dentista'}); carregarTudo();}} deletar={async id => {await db.equipe.delete(id); carregarTudo();}} />}
             {activeTab === 'agenda' && <AgendaView pacientes={pacientes} equipe={equipe} agendamentos={agendamentos} nova={novaConsulta} setNova={setNovaConsulta} save={handleSalvarAgenda} verificar={verificarDisponibilidade} onEdit={ag => {setNovaConsulta(ag); setEditandoId(ag.id);}} onDelete={async id => {await db.agendamentos.delete(id); carregarTudo();}} />}
             {activeTab === 'financeiro' && <FinanceiroView transacoes={transacoes} nova={novaTransacao} setNova={setNovaTransacao} save={handleSalvarFinanceiro} pacientes={pacientes} />}
-            {pacienteSelecionado && <OdontogramaDetalhes paciente={pacienteSelecionado} data={odontogramaData} onBack={() => setPacienteSelecionado(null)} onDenteClick={async (id, cond) => { await db.odontograma.where({ paciente_id: pacienteSelecionado.id, dente_id: id }).delete(); if (cond && cond !== 'saudavel') await db.odontograma.add({ owner_id: currentUser.id, paciente_id: pacienteSelecionado.id, dente_id: id, condicao: cond, data: new Date().toISOString() }); const newData = await db.odontograma.where({ paciente_id: pacienteSelecionado.id }).toArray(); setOdontogramaData(newData); }} />}
+            
+            {pacienteSelecionado && (
+              <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
+                <button onClick={() => setPacienteSelecionado(null)} className="text-slate-400 uppercase text-[10px] font-black flex items-center gap-2 hover:text-white transition-colors"><ChevronRight className="rotate-180"/> Voltar à Lista</button>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                   <ProntuarioView registros={prontuarios} novo={novoRegistroProntuario} setNovo={setNovoRegistroProntuario} onSave={handleSalvarProntuario} />
+                   <OdontogramaDetalhes paciente={pacienteSelecionado} data={odontogramaData} onDenteClick={async (id, cond) => { await db.odontograma.where({ paciente_id: pacienteSelecionado.id, dente_id: id }).delete(); if (cond && cond !== 'saudavel') await db.odontograma.add({ owner_id: currentUser.id, paciente_id: pacienteSelecionado.id, dente_id: id, condicao: cond, data: new Date().toISOString() }); const newData = await db.odontograma.where({ paciente_id: pacienteSelecionado.id }).toArray(); setOdontogramaData(newData); }} />
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="animate-in fade-in duration-500">
@@ -226,7 +258,7 @@ function DashboardView({ pacientesCount, agendamentosCount, transacoes }) {
   return (
     <div className="space-y-12">
       <h1 className="text-5xl font-black uppercase italic tracking-tighter">Visão Geral</h1>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-white">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 h-56 flex flex-col justify-between shadow-xl">
           <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400"><Users size={24}/></div>
           <div><p className="text-[10px] font-black uppercase text-slate-500 mb-1">Pacientes</p><p className="text-4xl font-black">{pacientesCount}</p></div>
@@ -246,7 +278,7 @@ function DashboardView({ pacientesCount, agendamentosCount, transacoes }) {
 
 function PacientesView({ pacientes, novo, setNovo, maskCPF, maskPhone, save, deletar, onSelect, onEdit }) {
   return (
-    <div className="space-y-12">
+    <div className="space-y-12 text-white">
       <h1 className="text-4xl font-black uppercase italic tracking-tighter">Pacientes</h1>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl">
@@ -255,7 +287,7 @@ function PacientesView({ pacientes, novo, setNovo, maskCPF, maskPhone, save, del
             <input required placeholder="CPF" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.cpf} onChange={e => setNovo({...novo, cpf: maskCPF(e.target.value)})} />
             <input required placeholder="Telefone" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.telefone} onChange={e => setNovo({...novo, telefone: maskPhone(e.target.value)})} />
             <input placeholder="Convênio" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.convenio} onChange={e => setNovo({...novo, convenio: e.target.value})} />
-            <textarea placeholder="Motivo inicial..." className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.motivo_consulta} onChange={e => setNovo({...novo, motivo_consulta: e.target.value})} />
+            <textarea placeholder="Anamnese Inicial / Prontuário..." className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none min-h-[100px]" value={novo.motivo_consulta} onChange={e => setNovo({...novo, motivo_consulta: e.target.value})} />
             <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-xl font-black uppercase shadow-lg">Salvar Paciente</button>
           </form>
         </div>
@@ -280,7 +312,7 @@ function PacientesView({ pacientes, novo, setNovo, maskCPF, maskPhone, save, del
 
 function EquipeView({ equipe, novo, setNovo, maskCPF, maskPhone, save, deletar }) {
   return (
-    <div className="space-y-12">
+    <div className="space-y-12 text-white">
       <h1 className="text-4xl font-black uppercase italic tracking-tighter">Equipe</h1>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl">
@@ -325,9 +357,9 @@ function AgendaView({ pacientes, equipe, agendamentos, nova, setNova, save, onDe
   }, [nova.data, nova.equipe_id, agendamentos]);
 
   return (
-    <div className="space-y-12 animate-in fade-in duration-500">
+    <div className="space-y-12 animate-in fade-in duration-500 text-white">
       <h1 className="text-4xl font-black uppercase italic tracking-tighter">Agenda Médica</h1>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 text-white">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl space-y-6">
           <form onSubmit={save} className="space-y-4">
             <select required className="w-full p-4 bg-[#0F172A] text-white border border-slate-600 rounded-xl outline-none" value={nova.paciente_id} onChange={e => setNova({...nova, paciente_id: e.target.value})}><option value="">Paciente...</option>{pacientes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>
@@ -393,18 +425,43 @@ function FinanceiroView({ transacoes, nova, setNova, save, pacientes }) {
   );
 }
 
+function ProntuarioView({ registros, novo, setNovo, onSave }) {
+  return (
+    <div className="space-y-8 text-white">
+      <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl">
+        <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2"><ClipboardList className="text-blue-500" /> Evolução Clínica</h2>
+        <form onSubmit={onSave} className="space-y-4">
+          <textarea placeholder="Anamnese / Queixas..." className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500 min-h-[100px]" value={novo.anamnese} onChange={e => setNovo({...novo, anamnese: e.target.value})} />
+          <textarea placeholder="Observações de Atendimento..." className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500 min-h-[100px]" value={novo.observacoes} onChange={e => setNovo({...novo, observacoes: e.target.value})} />
+          <button type="submit" className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-all"><Save size={18} /> Registrar Atendimento</button>
+        </form>
+      </div>
+      <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+        {registros.map(reg => (
+          <div key={reg.id} className="bg-[#1E293B]/50 p-8 rounded-[2.5rem] border border-slate-800">
+            <div className="flex justify-between items-center mb-4 text-[10px] font-black uppercase">
+              <span className="text-blue-400">{new Date(reg.data).toLocaleDateString('pt-BR')}</span>
+              <span className="text-slate-500">Dr(a). {reg.dentista_nome}</span>
+            </div>
+            <p className="text-sm text-slate-300 italic">"{reg.observacoes}"</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OdontogramaDetalhes({ paciente, data, onBack, onDenteClick }) {
   const ds = Array.from({ length: 16 }, (_, i) => i + 1);
   const di = Array.from({ length: 16 }, (_, i) => i + 17);
   return (
     <div className="space-y-8 animate-in slide-in-from-right-4 duration-500 text-white">
-      <button onClick={onBack} className="text-slate-400 uppercase text-[10px] font-black flex items-center gap-2 hover:text-white transition-colors"><ChevronRight className="rotate-180"/> Voltar</button>
       <div className="bg-[#1E293B] p-12 rounded-[4rem] border border-slate-700 shadow-2xl">
         <h2 className="text-3xl font-black uppercase tracking-tighter mb-12">{paciente.nome} - Odontograma</h2>
         <div className="flex flex-col gap-8 items-center">
-          <div className="grid grid-cols-8 md:grid-cols-16 gap-3">{ds.map(id => { const r = data.find(d => d.dente_id === id); return (<div key={id} onClick={() => onDenteClick(id, prompt("Condição? (carie, canal, extraido, saudavel)"))} className={`w-12 h-16 rounded-xl border-2 flex items-center justify-center font-black cursor-pointer transition-all hover:scale-110 ${r?.condicao === 'carie' ? 'bg-red-600 border-red-400' : r?.condicao === 'canal' ? 'bg-blue-600 border-blue-400' : 'bg-[#0F172A] border-slate-800'}`}><span className="text-xs">{id}</span></div>); })}</div>
-          <div className="w-full h-px bg-slate-800"></div>
-          <div className="grid grid-cols-8 md:grid-cols-16 gap-3">{di.map(id => { const r = data.find(d => d.dente_id === id); return (<div key={id} onClick={() => onDenteClick(id, prompt("Condição? (carie, canal, extraido, saudavel)"))} className={`w-12 h-16 rounded-xl border-2 flex items-center justify-center font-black cursor-pointer transition-all hover:scale-110 ${r?.condicao === 'carie' ? 'bg-red-600 border-red-400' : r?.condicao === 'canal' ? 'bg-blue-600 border-blue-400' : 'bg-[#0F172A] border-slate-800'}`}><span className="text-xs">{id}</span></div>); })}</div>
+          <div className="grid grid-cols-8 md:grid-cols-16 gap-3">{ds.map(id => { const r = data.find(d => d.dente_id === id); return (<div key={id} onClick={() => onDenteClick(id, prompt("Condição? (carie, canal, extraido, saudavel)"))} className={`w-12 h-16 rounded-xl border-2 flex items-center justify-center font-black cursor-pointer transition-all hover:scale-110 ${r?.condicao === 'carie' ? 'bg-red-600 border-red-400 shadow-lg' : r?.condicao === 'canal' ? 'bg-blue-600 border-blue-400 shadow-lg' : r?.condicao === 'extraido' ? 'bg-slate-700 border-slate-600 opacity-40' : 'bg-[#0F172A] border-slate-800 text-slate-500 hover:border-blue-500'}`}><span className="text-xs">{id}</span></div>); })}</div>
+          <div className="w-full h-px bg-slate-800 my-4 shadow-sm"></div>
+          <div className="grid grid-cols-8 md:grid-cols-16 gap-3">{di.map(id => { const r = data.find(d => d.dente_id === id); return (<div key={id} onClick={() => onDenteClick(id, prompt("Condição? (carie, canal, extraido, saudavel)"))} className={`w-12 h-16 rounded-xl border-2 flex items-center justify-center font-black cursor-pointer transition-all hover:scale-110 ${r?.condicao === 'carie' ? 'bg-red-600 border-red-400 shadow-lg' : r?.condicao === 'canal' ? 'bg-blue-600 border-blue-400 shadow-lg' : r?.condicao === 'extraido' ? 'bg-slate-700 border-slate-600 opacity-40' : 'bg-[#0F172A] border-slate-800 text-slate-500 hover:border-blue-500'}`}><span className="text-xs">{id}</span></div>); })}</div>
         </div>
       </div>
     </div>
@@ -427,13 +484,13 @@ function MinhasConsultas({ agendamentos, currentUser, selecionada, setSelecionad
             consultas.map(ag => (
               <div key={ag.id} onClick={() => setSelecionada(ag)} className={`bg-[#1E293B] p-10 rounded-[3rem] border-2 flex flex-col md:flex-row justify-between items-center shadow-2xl gap-8 cursor-pointer transition-all ${selecionada?.id === ag.id ? 'border-blue-500 scale-[1.02]' : 'border-transparent hover:border-slate-700'}`}>
                 <div className="flex items-center gap-8">
-                  <div className="w-20 h-20 bg-blue-600/20 rounded-[2rem] flex flex-col items-center justify-center text-blue-400 border border-blue-500/30">
-                    <span className="text-2xl font-black">{new Date(ag.data + 'T12:00:00').getDate()}</span>
-                    <span className="text-[9px] font-black uppercase">{new Date(ag.data + 'T12:00:00').toLocaleDateString('pt-BR', {month: 'short'})}</span>
+                  <div className="w-20 h-20 bg-blue-600/20 rounded-[2rem] flex flex-col items-center justify-center text-blue-400 border border-blue-500/30 font-black">
+                    <span className="text-2xl">{new Date(ag.data + 'T12:00:00').getDate()}</span>
+                    <span className="text-[9px] uppercase">{new Date(ag.data + 'T12:00:00').toLocaleDateString('pt-BR', {month: 'short'})}</span>
                   </div>
-                  <div><span className="px-4 py-1 bg-blue-600 text-white text-[9px] font-black uppercase rounded-full">{ag.hora}</span><h3 className="text-2xl font-black uppercase mt-1">{ag.procedimento}</h3><p className="text-xs font-black text-slate-500 uppercase">DR(A). {ag.medico_nome}</p></div>
+                  <div><span className="px-4 py-1 bg-blue-600 text-white text-[9px] font-black uppercase rounded-full">{ag.hora}</span><h3 className="text-2xl font-black uppercase mt-1">{ag.procedimento}</h3><p className="text-xs font-black text-slate-500 uppercase tracking-widest">DR(A). {ag.medico_nome}</p></div>
                 </div>
-                <div className="bg-[#0F172A] p-6 rounded-2xl border border-slate-800 w-full max-w-[300px]"><p className="text-[9px] font-black text-slate-500 uppercase mb-2">Resumo</p><p className="text-sm text-slate-300 italic truncate">"{ag.motivo || "Nenhuma observação."}"</p></div>
+                <div className="bg-[#0F172A] p-6 rounded-2xl border border-slate-800 w-full max-w-[300px]"><p className="text-[9px] font-black text-slate-500 uppercase mb-2">Resumo clínico</p><p className="text-sm text-slate-300 italic truncate">"{ag.motivo || "Nenhuma observação."}"</p></div>
               </div>
             ))
           )}
@@ -445,15 +502,15 @@ function MinhasConsultas({ agendamentos, currentUser, selecionada, setSelecionad
               <div className="bg-[#0F172A] p-6 rounded-[2.5rem] border border-slate-800">
                 <p className="text-[9px] font-black text-blue-500 uppercase mb-4 tracking-widest">Data e Horário</p>
                 <div className="flex items-center gap-4 text-white"><Calendar className="text-slate-500" size={18}/><p className="text-sm font-bold">{new Date(selecionada.data + 'T12:00:00').toLocaleDateString('pt-BR', { dateStyle: 'long' })}</p></div>
-                <div className="flex items-center gap-4 text-white mt-3"><RefreshCw className="text-slate-500" size={18}/><p className="text-sm font-bold">{selecionada.hora}h (Confirmada)</p></div>
+                <div className="flex items-center gap-4 text-white mt-3"><RefreshCw className="text-slate-500" size={18}/><p className="text-sm font-bold">{selecionada.hora}h (Sessão confirmada)</p></div>
               </div>
               <div className="space-y-4 px-4">
                 <div><label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Médico Responsável</label><p className="text-lg font-black uppercase">Dr(a). {selecionada.medico_nome}</p></div>
                 <div><label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Procedimento</label><p className="text-lg font-black text-blue-400 uppercase">{selecionada.procedimento}</p></div>
               </div>
-              <div className="bg-[#0F172A] p-8 rounded-[3rem] border border-slate-800 italic">
-                <label className="text-[9px] font-black text-slate-500 uppercase block mb-4 not-italic flex items-center gap-2"><Info size={12} className="text-blue-500"/> Orientações</label>
-                <p className="text-sm text-slate-300 leading-relaxed">"{selecionada.motivo || "Sem orientações específicas."}"</p>
+              <div className="bg-[#0F172A] p-8 rounded-[3rem] border border-slate-800 italic text-slate-300 text-sm">
+                <label className="text-[9px] font-black text-slate-500 uppercase block mb-4 not-italic flex items-center gap-2"><Info size={14} className="text-blue-500"/> Orientações Clínicas</label>
+                "{selecionada.motivo || "Sem orientações específicas registradas."}"
               </div>
             </div>
           </div>
@@ -479,7 +536,7 @@ function PerfilPacienteView({ pacientes, currentUser, editando, setEditando, for
         ) : (
           <div className="flex gap-4">
             <button onClick={() => setEditando(false)} className="px-6 py-3 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-colors">Cancelar</button>
-            <button onClick={save} className="flex items-center gap-2 bg-blue-600 px-8 py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-blue-900/20"><Save size={16}/> Salvar Alterações</button>
+            <button onClick={save} className="flex items-center gap-2 bg-blue-600 text-white px-8 py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-blue-900/20"><Save size={16}/> Salvar Alterações</button>
           </div>
         )}
       </div>
@@ -487,14 +544,14 @@ function PerfilPacienteView({ pacientes, currentUser, editando, setEditando, for
         <div className="bg-[#1E293B] p-12 rounded-[4rem] border border-slate-700 shadow-2xl relative overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 relative z-10">
             <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Nome Completo</label>{!editando ? <p className="text-2xl font-black uppercase tracking-tighter">{dados?.nome || 'N/A'}</p> : <input className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500" value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} />}</div>
-            <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">CPF (Não editável)</label><p className="text-2xl font-black text-slate-500">{currentUser.cpf}</p></div>
+            <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">CPF (Apenas Leitura)</label><p className="text-2xl font-black text-slate-500">{currentUser.cpf}</p></div>
             <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Telefone</label>{!editando ? <p className="text-2xl font-black">{dados?.telefone || 'N/A'}</p> : <input className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500" value={form.telefone} onChange={e => setForm({...form, telefone: maskPhone(e.target.value)})} />}</div>
-            <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Convênio Médico</label><p className="text-2xl font-black text-slate-500 uppercase">{dados?.convenio || 'Particular'}</p></div>
+            <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Plano/Convênio</label><p className="text-2xl font-black text-slate-500 uppercase">{dados?.convenio || 'Particular'}</p></div>
           </div>
         </div>
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl opacity-80">
-           <h4 className="text-[10px] font-black uppercase mb-6 text-blue-500 tracking-widest flex items-center gap-2"><ClipboardList size={14}/> Histórico de Anamnese (Leitura)</h4>
-           <div className="bg-[#0F172A]/50 border-l-4 border-blue-600 p-8 rounded-r-3xl italic"><p className="text-slate-400 leading-relaxed">{dados?.motivo_consulta || "Sem dados clínicos iniciais registrados."}</p></div>
+           <h4 className="text-[10px] font-black uppercase mb-6 text-blue-500 tracking-widest flex items-center gap-2"><ClipboardList size={14}/> Histórico de Anamnese</h4>
+           <div className="bg-[#0F172A]/50 border-l-4 border-blue-600 p-8 rounded-r-3xl italic text-slate-400 leading-relaxed">{dados?.motivo_consulta || "Sem dados clínicos registrados pela clínica."}</div>
         </div>
       </div>
     </div>
