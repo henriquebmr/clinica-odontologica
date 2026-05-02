@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, hashPassword } from './db';
 import logo from './assets/logo.png'; 
+// Importação do novo componente
+import AnamneseForm from './components/AnamneseForm';
 import { 
   Users, Calendar, DollarSign, LayoutDashboard, LogOut, UserCircle, 
   Trash2, Edit3, RefreshCw, X, ChevronRight, ArrowUpRight, ArrowDownRight, 
@@ -24,7 +26,12 @@ export default function App() {
   const [editandoId, setEditandoId] = useState(null);
   
   // --- 3. ESTADOS DE FORMULÁRIOS ---
-  const [novoPaciente, setNovoPaciente] = useState({ nome:'', cpf:'', telefone:'', convenio:'', motivo_consulta:'', email_paciente:'' });
+  // Removido 'motivo_consulta' do estado inicial pois agora será via ficha de anamnese
+ const [novoPaciente, setNovoPaciente] = useState({ 
+  nome: '', cpf: '', rg: '', data_nascimento: '', 
+  telefone: '', email_paciente: '', profissao: '', 
+  endereco: '', convenio: '' 
+});
   const [novoMembro, setNovoMembro] = useState({ nome: '', cpf: '', cro: '', cargo: '', telefone: '', email: '', tipo_usuario: 'dentista' });
   const [novaConsulta, setNovaConsulta] = useState({ paciente_id: '', equipe_id: '', data: '', hora: '', procedimento: 'Consulta Geral', motivo: '' });
   const [novaTransacao, setNovaTransacao] = useState({ tipo: 'receita', valor: '', categoria: 'Consulta', paciente_id: '' });
@@ -103,16 +110,29 @@ export default function App() {
     setProntuarios(data);
   };
 
-  const verificarDisponibilidade = async (data, hora, equipeId) => {
-    const ags = await db.agendamentos.where({ data }).filter(a => a.hora === hora && a.equipe_id === parseInt(equipeId)).toArray();
-    return !ags.find(a => a.id !== editandoId);
-  };
+ // Substitua a função verificarDisponibilidade existente por esta:
+const verificarDisponibilidade = async (data, hora, equipeId) => {
+  // Busca todos os agendamentos do dentista no dia selecionado
+  const agendamentosNoDia = await db.agendamentos
+    .where({ data })
+    .filter(a => a.equipe_id === parseInt(equipeId))
+    .toArray();
+
+  // Verifica se já existe um agendamento EXATAMENTE no mesmo horário
+  const conflitoDireto = agendamentosNoDia.find(a => a.hora === hora && a.id !== editandoId);
+  
+  if (conflitoDireto) return false;
+
+  // Lógica de intervalo: não permite agendar se houver outro em menos de 30min
+  // Como os slots são de 30 em 30 min, a verificação acima já cobre a regra de negócio solicitada.
+  return true;
+};
 
   const handleSalvarPaciente = async (e) => {
     e.preventDefault();
     if (editandoId) await db.pacientes.update(editandoId, novoPaciente);
     else await db.pacientes.add({ ...novoPaciente, owner_id: currentUser.id });
-    setEditandoId(null); setNovoPaciente({ nome:'', cpf:'', telefone:'', convenio:'', motivo_consulta:'', email_paciente:'' });
+    setEditandoId(null); setNovoPaciente({ nome:'', cpf:'', telefone:'', convenio:'', email_paciente:'' });
     await carregarTudo();
   };
 
@@ -121,11 +141,12 @@ export default function App() {
     const p = pacientes.find(px => px.id === parseInt(novaConsulta.paciente_id));
     const m = equipe.find(ex => ex.id === parseInt(novaConsulta.equipe_id));
     if (!p || !m) return alert("Dados incompletos.");
-    const dados = { ...novaConsulta, owner_id: currentUser.id, paciente_nome: p.nome, paciente_cpf: p.cpf, medico_nome: m.nome, motivo: novaConsulta.motivo || p.motivo_consulta };
+    const dados = { ...novaConsulta, owner_id: currentUser.id, paciente_nome: p.nome, paciente_cpf: p.cpf, medico_nome: m.nome, motivo: novaConsulta.motivo };
     if (editandoId) await db.agendamentos.update(editandoId, dados);
     else await db.agendamentos.add(dados);
+    setEditandoId(null);
     setNovaConsulta({ paciente_id: '', equipe_id: '', data: '', hora: '', procedimento: 'Consulta Geral', motivo: '' });
-    setEditandoId(null); await carregarTudo();
+    await carregarTudo();
   };
 
   const handleSalvarFinanceiro = async (e) => {
@@ -202,6 +223,8 @@ export default function App() {
             <>
               <NavItem active={activeTab === 'dashboard'} icon={<LayoutDashboard size={20}/>} label="Dashboard" onClick={() => setActiveTab('dashboard')} />
               <NavItem active={activeTab === 'pacientes'} icon={<Users size={20}/>} label="Pacientes" onClick={() => {setActiveTab('pacientes'); setPacienteSelecionado(null);}} />
+              {/* Nova aba de Anamnese adicionada aqui */}
+              <NavItem active={activeTab === 'anamnese'} icon={<ClipboardList size={20}/>} label="Anamnese" onClick={() => setActiveTab('anamnese')} />
               <NavItem active={activeTab === 'equipe'} icon={<Briefcase size={20}/>} label="Equipe" onClick={() => setActiveTab('equipe')} />
               <NavItem active={activeTab === 'agenda'} icon={<Calendar size={20}/>} label="Agenda Médica" onClick={() => setActiveTab('agenda')} />
               <NavItem active={activeTab === 'financeiro'} icon={<DollarSign size={20}/>} label="Financeiro" onClick={() => setActiveTab('financeiro')} />
@@ -221,6 +244,8 @@ export default function App() {
           <>
             {activeTab === 'dashboard' && <DashboardView pacientesCount={pacientes.length} agendamentosCount={agendamentos.length} transacoes={transacoes} />}
             {activeTab === 'pacientes' && !pacienteSelecionado && <PacientesView pacientes={pacientes} novo={novoPaciente} setNovo={setNovoPaciente} maskCPF={maskCPF} maskPhone={maskPhone} save={handleSalvarPaciente} onEdit={(p) => {setNovoPaciente(p); setEditandoId(p.id);}} deletar={async id => {await db.pacientes.delete(id); carregarTudo();}} onSelect={async p => { setPacienteSelecionado(p); await carregarProntuarios(p.id); const odont = await db.odontograma.where({ paciente_id: p.id }).toArray(); setOdontogramaData(odont); }} />}
+            {/* Renderização da nova tela de Anamnese */}
+            {activeTab === 'anamnese' && <AnamneseForm />}
             {activeTab === 'equipe' && <EquipeView equipe={equipe} novo={novoMembro} setNovo={setNovoMembro} maskCPF={maskCPF} maskPhone={maskPhone} save={async e => {e.preventDefault(); await db.equipe.add(novoMembro); setNovoMembro({nome:'', cpf:'', cro:'', cargo:'', telefone:'', email:'', tipo_usuario:'dentista'}); carregarTudo();}} deletar={async id => {await db.equipe.delete(id); carregarTudo();}} />}
             {activeTab === 'agenda' && <AgendaView pacientes={pacientes} equipe={equipe} agendamentos={agendamentos} nova={novaConsulta} setNova={setNovaConsulta} save={handleSalvarAgenda} verificar={verificarDisponibilidade} onEdit={ag => {setNovaConsulta(ag); setEditandoId(ag.id);}} onDelete={async id => {await db.agendamentos.delete(id); carregarTudo();}} />}
             {activeTab === 'financeiro' && <FinanceiroView transacoes={transacoes} nova={novaTransacao} setNova={setNovaTransacao} save={handleSalvarFinanceiro} pacientes={pacientes} />}
@@ -229,16 +254,16 @@ export default function App() {
               <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
                 <button onClick={() => setPacienteSelecionado(null)} className="text-slate-400 uppercase text-[10px] font-black flex items-center gap-2 hover:text-white transition-colors"><ChevronRight className="rotate-180"/> Voltar à Lista</button>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                   <ProntuarioView registros={prontuarios} novo={novoRegistroProntuario} setNovo={setNovoRegistroProntuario} onSave={handleSalvarProntuario} />
-                   <OdontogramaDetalhes paciente={pacienteSelecionado} data={odontogramaData} onDenteClick={async (id, cond) => { await db.odontograma.where({ paciente_id: pacienteSelecionado.id, dente_id: id }).delete(); if (cond && cond !== 'saudavel') await db.odontograma.add({ owner_id: currentUser.id, paciente_id: pacienteSelecionado.id, dente_id: id, condicao: cond, data: new Date().toISOString() }); const newData = await db.odontograma.where({ paciente_id: pacienteSelecionado.id }).toArray(); setOdontogramaData(newData); }} />
+                    <ProntuarioView registros={prontuarios} novo={novoRegistroProntuario} setNovo={setNovoRegistroProntuario} onSave={handleSalvarProntuario} />
+                    <OdontogramaDetalhes paciente={pacienteSelecionado} data={odontogramaData} onDenteClick={async (id, cond) => { await db.odontograma.where({ paciente_id: pacienteSelecionado.id, dente_id: id }).delete(); if (cond && cond !== 'saudavel') await db.odontograma.add({ owner_id: currentUser.id, paciente_id: pacienteSelecionado.id, dente_id: id, condicao: cond, data: new Date().toISOString() }); const newData = await db.odontograma.where({ paciente_id: pacienteSelecionado.id }).toArray(); setOdontogramaData(newData); }} />
                 </div>
               </div>
             )}
           </>
         ) : (
           <div className="animate-in fade-in duration-500">
-             {activeTab === 'consultas' && <MinhasConsultas agendamentos={agendamentos} currentUser={currentUser} selecionada={consultaSelecionada} setSelecionada={setConsultaSelecionada} />}
-             {activeTab === 'perfil' && <PerfilPacienteView pacientes={pacientes} currentUser={currentUser} editando={editandoPerfil} setEditando={setEditandoPerfil} form={perfilPacienteForm} setForm={setPerfilPacienteForm} save={handleSalvarPerfilPaciente} maskPhone={maskPhone} />}
+              {activeTab === 'consultas' && <MinhasConsultas agendamentos={agendamentos} currentUser={currentUser} selecionada={consultaSelecionada} setSelecionada={setConsultaSelecionada} />}
+              {activeTab === 'perfil' && <PerfilPacienteView pacientes={pacientes} currentUser={currentUser} editando={editandoPerfil} setEditando={setEditandoPerfil} form={perfilPacienteForm} setForm={setPerfilPacienteForm} save={handleSalvarPerfilPaciente} maskPhone={maskPhone} />}
           </div>
         )}
       </main>
@@ -284,10 +309,21 @@ function PacientesView({ pacientes, novo, setNovo, maskCPF, maskPhone, save, del
         <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl">
           <form onSubmit={save} className="space-y-4">
             <input required placeholder="Nome Completo" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.nome} onChange={e => setNovo({...novo, nome: e.target.value})} />
-            <input required placeholder="CPF" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.cpf} onChange={e => setNovo({...novo, cpf: maskCPF(e.target.value)})} />
+            
+            <div className="grid grid-cols-2 gap-4">
+              <input required placeholder="CPF" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.cpf} onChange={e => setNovo({...novo, cpf: maskCPF(e.target.value)})} />
+              <input placeholder="RG" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.rg || ''} onChange={e => setNovo({...novo, rg: e.target.value})} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <input required type="date" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.data_nascimento || ''} onChange={e => setNovo({...novo, data_nascimento: e.target.value})} title="Data de Nascimento" />
+              <input placeholder="Profissão" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.profissao || ''} onChange={e => setNovo({...novo, profissao: e.target.value})} />
+            </div>
+
             <input required placeholder="Telefone" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.telefone} onChange={e => setNovo({...novo, telefone: maskPhone(e.target.value)})} />
-            <input placeholder="Convênio" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.convenio} onChange={e => setNovo({...novo, convenio: e.target.value})} />
-            <textarea placeholder="Anamnese Inicial / Prontuário..." className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none min-h-[100px]" value={novo.motivo_consulta} onChange={e => setNovo({...novo, motivo_consulta: e.target.value})} />
+            <input placeholder="Endereço Completo" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.endereco || ''} onChange={e => setNovo({...novo, endereco: e.target.value})} />
+            <input placeholder="E-mail" className="w-full p-4 bg-[#0F172A] text-white rounded-xl border border-slate-600 outline-none" value={novo.email_paciente || ''} onChange={e => setNovo({...novo, email_paciente: e.target.value})} />
+            
             <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-xl font-black uppercase shadow-lg">Salvar Paciente</button>
           </form>
         </div>
@@ -416,8 +452,8 @@ function FinanceiroView({ transacoes, nova, setNova, save, pacientes }) {
         </div>
         <div className="lg:col-span-2 bg-[#1E293B] rounded-[3rem] border border-slate-700 shadow-xl overflow-hidden">
            <table className="w-full text-left">
-              <thead><tr className="bg-[#0F172A] text-slate-500 text-[10px] uppercase font-black border-b border-slate-800"><th className="p-8">Descrição</th><th className="p-8 text-right">Valor</th></tr></thead>
-              <tbody>{transacoes.map(t => (<tr key={t.id} className="border-b border-slate-800 p-8"><td className="p-8 font-black uppercase text-sm">{t.descricao_exibicao || t.categoria}</td><td className={`p-8 text-right font-black ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}`}>R$ {parseFloat(t.valor).toFixed(2)}</td></tr>))}</tbody>
+             <thead><tr className="bg-[#0F172A] text-slate-500 text-[10px] uppercase font-black border-b border-slate-800"><th className="p-8">Descrição</th><th className="p-8 text-right">Valor</th></tr></thead>
+             <tbody>{transacoes.map(t => (<tr key={t.id} className="border-b border-slate-800 p-8"><td className="p-8 font-black uppercase text-sm">{t.descricao_exibicao || t.categoria}</td><td className={`p-8 text-right font-black ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}`}>R$ {parseFloat(t.valor).toFixed(2)}</td></tr>))}</tbody>
            </table>
         </div>
       </div>
@@ -431,9 +467,9 @@ function ProntuarioView({ registros, novo, setNovo, onSave }) {
       <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl">
         <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2"><ClipboardList className="text-blue-500" /> Evolução Clínica</h2>
         <form onSubmit={onSave} className="space-y-4">
-          <textarea placeholder="Anamnese / Queixas..." className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500 min-h-[100px]" value={novo.anamnese} onChange={e => setNovo({...novo, anamnese: e.target.value})} />
+          <textarea placeholder="Procedimento realizado / Queixas..." className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500 min-h-[100px]" value={novo.anamnese} onChange={e => setNovo({...novo, anamnese: e.target.value})} />
           <textarea placeholder="Observações de Atendimento..." className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500 min-h-[100px]" value={novo.observacoes} onChange={e => setNovo({...novo, observacoes: e.target.value})} />
-          <button type="submit" className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-all"><Save size={18} /> Registrar Atendimento</button>
+          <button type="submit" className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-all"><Save size={18} /> Registrar Evolução</button>
         </form>
       </div>
       <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
@@ -548,10 +584,6 @@ function PerfilPacienteView({ pacientes, currentUser, editando, setEditando, for
             <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Telefone</label>{!editando ? <p className="text-2xl font-black">{dados?.telefone || 'N/A'}</p> : <input className="w-full bg-[#0F172A] border border-slate-700 p-4 rounded-2xl text-white outline-none focus:border-blue-500" value={form.telefone} onChange={e => setForm({...form, telefone: maskPhone(e.target.value)})} />}</div>
             <div className="space-y-1"><label className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Plano/Convênio</label><p className="text-2xl font-black text-slate-500 uppercase">{dados?.convenio || 'Particular'}</p></div>
           </div>
-        </div>
-        <div className="bg-[#1E293B] p-10 rounded-[3rem] border border-slate-700 shadow-xl opacity-80">
-           <h4 className="text-[10px] font-black uppercase mb-6 text-blue-500 tracking-widest flex items-center gap-2"><ClipboardList size={14}/> Histórico de Anamnese</h4>
-           <div className="bg-[#0F172A]/50 border-l-4 border-blue-600 p-8 rounded-r-3xl italic text-slate-400 leading-relaxed">{dados?.motivo_consulta || "Sem dados clínicos registrados pela clínica."}</div>
         </div>
       </div>
     </div>
